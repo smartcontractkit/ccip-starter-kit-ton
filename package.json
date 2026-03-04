@@ -1,5 +1,6 @@
 {
   "name": "ccip-ton-starter-kit",
+  "type": "module",
   "scripts": {
     "deploy:evm": "npx hardhat run scripts/deploy/deployReceiver.ts --network sepolia",
     "deploy:ton": "tsx scripts/deploy/deployTONReceiver.ts",
@@ -9,7 +10,7 @@
     "utils:checkTON": "tsx scripts/utils/checkMessageOnTON.ts"
   },
   "dependencies": {
-    "@chainlink/contracts-ccip": "1.6.2",
+    "@chainlink/contracts-ccip": "1.6.1",
     "@openzeppelin/contracts": "^5.0.2",
     "@ton/core": "^0.62.0",
     "@ton/crypto": "^3.3.0",

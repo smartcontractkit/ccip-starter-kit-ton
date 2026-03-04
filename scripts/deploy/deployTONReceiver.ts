@@ -7,12 +7,11 @@ import { TON_TESTNET } from '../../config/constants';
 
 dotenv.config();
 
-
 async function main() {
   console.log('🚀 Deploying MessageReceiver contract to TON Testnet...\n');
 
-  // TON OffRamp address from staging environment
-  const TON_OFFRAMP = TON_TESTNET.OFFRAMP;
+  // TON Router address - this is what sends CCIPReceive messages to the receiver
+  const TON_ROUTER = TON_TESTNET.ROUTER;
 
   // Connect to TON (API key is automatically included if TON_API_KEY is set in .env)
   const endpoint = TON_TESTNET.RPC_URL;
@@ -39,14 +38,14 @@ async function main() {
   
   // Build initial data (storage) for test receiver
   // Storage { id: uint32, ownable: Ownable2Step, authorizedCaller: address, behavior: uint8 }
-  const offRampAddress = Address.parse(TON_OFFRAMP);
+  const routerAddress = Address.parse(TON_ROUTER);
   const ownerAddress = wallet.address;  // Make deployer the owner
   
   const initialData = beginCell()
     .storeUint(0, 32)                // id: 0
     .storeAddress(ownerAddress)      // ownable.owner
     .storeBit(false)                 // ownable.pendingOwner (null)
-    .storeAddress(offRampAddress)    // authorizedCaller (OffRamp)
+    .storeAddress(routerAddress)     // authorizedCaller (Router - sends CCIPReceive messages)
     .storeUint(0, 8)                 // behavior: ReceiverBehavior.Accept (0)
     .endCell();
 
@@ -55,7 +54,7 @@ async function main() {
   const receiverAddress = contractAddress(0, stateInit);
 
   console.log('📍 Contract will be deployed at:', receiverAddress.toString());
-  console.log('📍 OffRamp address:', TON_OFFRAMP);
+  console.log('📍 Router address (authorizedCaller):', TON_ROUTER);
 
   // Deploy contract
   console.log('\n⏳ Sending deployment transaction...');
