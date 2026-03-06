@@ -18,7 +18,7 @@ async function verifyEVMReceiver() {
   const expectedMessage = process.env.MESSAGE || 'Hello EVM from TON'
   
   const receiverABI = [
-    "event MessageReceived(bytes32 indexed messageId, uint64 indexed sourceChainSelector, address sender, bytes data)",
+    "event MessageFromTON(bytes32 indexed messageId, uint64 indexed sourceChainSelector, bytes sender, bytes data)",
     "function getLastMessage() external view returns (bytes32, bytes)"
   ]
 
@@ -46,6 +46,10 @@ async function verifyEVMReceiver() {
     const [messageId, data] = await receiver.getLastMessage()
     lastMessageId = messageId
     lastMessageData = data
+
+    console.log('📨 Latest message in contract state:')
+    console.log('   Message ID:  ', lastMessageId)
+    console.log('   Message:     ', `"${ethers.toUtf8String(lastMessageData)}"`)
   } catch (error: any) {
     console.log('⚠️  Could not read contract state (contract may not have getLastMessage)')
   }
@@ -56,11 +60,11 @@ async function verifyEVMReceiver() {
   
   console.log('📊 Scanning blocks', fromBlock, 'to', currentBlock, '...\n')
 
-  const filter = receiver.filters.MessageReceived()
+  const filter = receiver.filters.MessageFromTON()
   const events = await receiver.queryFilter(filter, fromBlock, currentBlock)
 
   if (events.length === 0) {
-    console.log('❌ No MessageReceived events found in recent blocks\n')
+    console.log('❌ No MessageFromTON events found in recent blocks\n')
     console.log('⏳ If you just sent a message from TON, it may still be in transit.')
     console.log('   CCIP delivery typically takes 5-15 minutes.\n')
     printHelp()

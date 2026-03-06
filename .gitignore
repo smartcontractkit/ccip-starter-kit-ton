@@ -17,3 +17,7 @@ broadcast/
 *_GUIDE.md
 QUICK_START.md
 TEST_*.md
+
+# MacOS System files
+.DS_Store
+*/.DS_Store
