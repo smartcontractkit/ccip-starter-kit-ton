@@ -1,6 +1,6 @@
-# CCIP Script Specification Document
+# CCIP EVM ↔ TON Encoding Reference
 
-This document explains the technical details behind the provided scripts, specifically focusing on **encoding**, **decoding**, and **execution parameters** for Cross-Chain Interoperability Protocol (CCIP) messages between EVM and TON.
+This document covers the **encoding**, **decoding**, and **execution parameters** for Cross-Chain Interoperability Protocol (CCIP) messages between EVM and TON.
 
 Understanding these details is crucial because EVM (Ethereum Virtual Machine) and TVM (TON Virtual Machine) use fundamentally different data structures.
 
@@ -32,15 +32,16 @@ Understanding these details is crucial because EVM (Ethereum Virtual Machine) an
 const tonAddr = Address.parse("EQB..."); 
 
 // 2. Extract Components
-const workchain = tonAddr.workChain; // usually 0 or -1
+const workchain = tonAddr.workChain; // 0 or -1
 const hash = tonAddr.hash;           // 32-byte unique ID
 
 // 3. Pack into 36 Bytes (Big-Endian)
-// [ 4 bytes workchain ] + [ 32 bytes hash ]
-const receiverBytes = ethers.concat([
-  ethers.toBeHex(workchain, 4), 
-  hash
-]);
+// [ 4 bytes workchain (int32) ] + [ 32 bytes hash ]
+const workchainBytes = new Uint8Array(4)
+new DataView(workchainBytes.buffer).setInt32(0, workchain, false) // big-endian
+const receiverBytes = ethers.concat([workchainBytes, hash])
+// e.g. workchain 0  → 0x00000000 + 32-byte hash
+// e.g. workchain -1 → 0xffffffff + 32-byte hash
 ```
 
 ### ExtraArgs & Execution Parameters
@@ -63,7 +64,7 @@ const extraArgs = abiCoder.encode(
 const finalArgs = ethers.concat(['0x181dcf10', extraArgs]);
 ```
 
-**Important:** For EVM → TON, the `gasLimit` represents the amount of **TON (in nanoTON)** allocated for executing the message on TON. This is different from EVM gas semantics.
+**Important:** For EVM → TON, the `gasLimit` represents the amount of **TON (in nanoTON)** allocated for executing the message on TON. This is different from EVM gas semantics. The scripts use `100_000_000n` (0.1 TON) as the default.
 
 ### Data Payload (EVM → TON)
 *   **Input:** `bytes` (EVM side)
@@ -76,9 +77,9 @@ const finalArgs = ethers.concat(['0x181dcf10', extraArgs]);
 *Script:* `ton2evm/sendMessage.ts`
 
 ### Address Encoding (TON → EVM)
-**The Challenge:** The TON Router uses a strict schema called `CrossChainAddress`. For EVM addresses (20 bytes), it demands a fixed **32-byte** field.
+**The Challenge:** The TON Router uses a `CrossChainAddress` type that encodes addresses as a length-prefixed byte string. For EVM addresses (20 bytes), the value must be left-padded to **32 bytes**.
 
-**The Solution:** **Left-Pad** with zeros.
+**The Solution:** **Left-Pad** with zeros, then pass the 32-byte buffer — the `CrossChainAddress` encoding writes a 1-byte length prefix (`0x20`) on the wire automatically.
 
 ```typescript
 const evmAddr = "0x1234..."; // 20 bytes
@@ -89,8 +90,9 @@ const padding = Buffer.alloc(12, 0);
 // 2. Get raw 20 bytes from address
 const addrBytes = Buffer.from(evmAddr.slice(2), 'hex');
 
-// 3. Concatenate: [ 00...00 ] + [ 20-byte address ]
+// 3. Concatenate: [ 00...00 ] + [ 20-byte address ] = 32 bytes
 const receiverBytes = Buffer.concat([padding, addrBytes]);
+// On the wire: uint8(32) + these 32 bytes (length-prefixed by CrossChainAddress encoding)
 ```
 
 ### ExtraArgs (TL-B Encoding)
@@ -117,6 +119,8 @@ const extraArgs = beginCell()
   .endCell();
 ```
 
+**Important:** For TON → EVM, the `gasLimit` is in **EVM gas units** (not nanoTON). The scripts use `100_000` EVM gas units as the default.
+
 ### Data Payload (TON → EVM)
 *   **Input:** `Cell` (TON side)
 *   **Output:** `bytes` (EVM side)
@@ -133,10 +137,9 @@ const extraArgs = beginCell()
 ## Byte-Level Encoding Details
 
 ### 1. The 36-Byte Address (EVM → TON)
-When you send `EQB-S0...` to TON, it's actually:
-*   **Hex:** `ff` (workchain -1) + `32-byte-hash`
-*   **Buffer:** `[ 255, 255, 255, 255, <32 bytes of public key hash> ]`
-*   **Decoded on TON:** The OffRamp splits this back into `workchain:address`.
+The workchain is encoded as a signed 32-bit big-endian integer:
+*   Workchain `0`  → `0x00000000` + 32-byte hash
+*   Workchain `-1` → `0xffffffff` + 32-byte hash
 
 ### 2. The ExtraArgs Bitmask (TON → EVM)
 If you send `gasLimit: 1000000`, the binary stream looks like this:
@@ -144,9 +147,9 @@ If you send `gasLimit: 1000000`, the binary stream looks like this:
 | Field | Size | Value | Binary / Hex |
 | :--- | :--- | :--- | :--- |
 | **Tag** | 32 bits | `0x181dcf10` | `0001 1000 ...` |
-| **Present?** | 1 bit | `true` | `1` |
-| **Value** | 256 bits | `1000000` | `00...0F4240` |
-| **Strict?** | 1 bit | `true` | `1` |
+| **gasLimit present?** | 1 bit | `true` | `1` |
+| **gasLimit** | 256 bits | `100000` | `00...0186A0` |
+| **allowOutOfOrderExecution** | 1 bit | `true` | `1` |
 
 **Without the presence bit:**
 The parser interprets the first bit of `1000000` (which is `0`) as the presence flag. It determines that the gas limit is not present and skips reading the value. The next bit is then read as `allowOutOfOrderExecution`, resulting in incorrect data. This causes the transaction to fail with Exit Code 9.
@@ -157,7 +160,8 @@ The parser interprets the first bit of `1000000` (which is `0`) as the presence 
 
 | Feature | EVM → TON | TON → EVM |
 | :--- | :--- | :--- |
-| **Address Format** | 36 Bytes (4B Workchain + 32B Hash) | 32 Bytes (12B Zeros + 20B Address) |
+| **Address Format** | 36 Bytes (4B workchain int32 + 32B hash) | 32 Bytes zero-padded (12B zeros + 20B address), length-prefixed by `CrossChainAddress` |
 | **Ordering** | `allowOutOfOrder = true` (Mandatory) | `allowOutOfOrder = true` (Recommended) |
 | **ExtraArgs Fmt** | ABI Encoded (`bytes`) | TL-B Encoded (`Cell`) |
+| **gasLimit units** | nanoTON (e.g. `100_000_000n` = 0.1 TON) | EVM gas units (e.g. `100_000`) |
 | **Data Format** | `bytes` → Wrapped in `Cell` | `Cell` → Unwrapped to `bytes` |

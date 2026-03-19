@@ -1,11 +1,37 @@
 import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-ethers";
+import hardhatVerify from "@nomicfoundation/hardhat-verify";
 import * as dotenv from "dotenv";
+import { networkConfig, supportedEvmChains } from "./helper-config";
 
 dotenv.config();
 
+const networks = Object.fromEntries(
+  supportedEvmChains.map((chain) => {
+    const cfg = networkConfig[chain];
+    const rpcUrlEnv = `${cfg.networkIdentifier}_RPC_URL`;
+    const rpcUrl = process.env[rpcUrlEnv];
+    if (!rpcUrl) {
+      throw new Error(`Missing required env var ${rpcUrlEnv} for ${chain} RPC URL`);
+    }
+    return [
+      chain,
+      {
+        type: "http" as const,
+        url: rpcUrl,
+        chainId: cfg.chainId,
+        accounts: process.env.EVM_PRIVATE_KEY ? [process.env.EVM_PRIVATE_KEY] : [],
+      },
+    ];
+  })
+);
+
 const config: HardhatUserConfig = {
+  plugins: [hardhatVerify],
   solidity: {
+    npmFilesToBuild: [
+      "@chainlink/contracts-ccip/contracts/onRamp/OnRamp.sol",
+      "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol",
+    ],
     version: "0.8.24",
     settings: {
       optimizer: {
@@ -14,14 +40,19 @@ const config: HardhatUserConfig = {
       },
     },
   },
-  networks: {
-    sepolia: {
-      type: "http" as const,
-      url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
-      accounts: process.env.SEPOLIA_PRIVATE_KEY ? [process.env.SEPOLIA_PRIVATE_KEY] : [],
-      chainId: 11155111,
+  verify: {
+    etherscan: {
+      apiKey: process.env.ETHERSCAN_API_KEY || "UNSET",
+      enabled: true,
+    },
+    blockscout: {
+      enabled: false,
+    },
+    sourcify: {
+      enabled: false,
     },
   },
+  networks,
   paths: {
     sources: "./contracts",
     tests: "./test",

@@ -1,21 +1,51 @@
 import { ethers } from 'ethers'
-import { SEPOLIA, TON_TESTNET, CONTRACTS } from '../../config/constants'
+import yargs from 'yargs'
+import { hideBin } from 'yargs/helpers'
+import { supportedEvmChains, networkConfig, ccipExplorerUrl } from '../../helper-config'
+import { getEvmChainConfig, getRpcUrlForEvmChain } from '../utils/utils'
 
 /**
  * Verify that a TON → EVM message was delivered
- * 
+ *
  * Usage:
- *   npm run utils:checkEVM                         # Check latest message
- *   MESSAGE_ID=0x... npm run utils:checkEVM        # Verify specific message ID
+ *   npm run utils:checkEVM                                           # Check latest message
+ *   npm run utils:checkEVM -- --destChain sepolia                    # Select destination EVM chain
+ *   npm run utils:checkEVM -- --msg "Hello EVM"                     # Verify specific message content
  */
+const argv = yargs(hideBin(process.argv))
+  .option('destChain', {
+    type: 'string',
+    description: 'Destination EVM chain',
+    choices: supportedEvmChains,
+    demandOption: true,
+  })
+  .option('msg', {
+    type: 'string',
+    description: 'Expected message content to match against',
+    default: 'Hello EVM from TON',
+  })
+  .option('evmReceiver', {
+    type: 'string',
+    description: 'EVM receiver contract address',
+    demandOption: true,
+  })
+  .option('verbose', {
+    type: 'boolean',
+    description: 'Show additional address format details',
+    default: false,
+  })
+  .parseSync()
+
 async function verifyEVMReceiver() {
+  const destChain = getEvmChainConfig(argv.destChain)
+
   console.log('═══════════════════════════════════════════════════════════════')
   console.log('  TON → EVM Message Verification')
   console.log('═══════════════════════════════════════════════════════════════\n')
 
-  const provider = new ethers.JsonRpcProvider(SEPOLIA.RPC_URL)
+  const provider = new ethers.JsonRpcProvider(getRpcUrlForEvmChain(destChain))
   const expectedMessageId = process.env.MESSAGE_ID
-  const expectedMessage = process.env.MESSAGE || 'Hello EVM from TON'
+  const expectedMessage = argv.msg
   
   const receiverABI = [
     "event MessageFromTON(bytes32 indexed messageId, uint64 indexed sourceChainSelector, bytes sender, bytes data)",
@@ -23,14 +53,15 @@ async function verifyEVMReceiver() {
   ]
 
   const receiver = new ethers.Contract(
-    CONTRACTS.EVM_RECEIVER,
+    argv.evmReceiver,
     receiverABI,
     provider
   )
 
-  console.log('📍 Receiver Contract:', CONTRACTS.EVM_RECEIVER)
+  console.log('📍 Receiver Contract:', argv.evmReceiver)
+  console.log('🌐 Destination Chain:', argv.destChain)
   console.log('🔍 Looking for message:', `"${expectedMessage}"`)
-  console.log('🔍 Expected source:', TON_TESTNET.CHAIN_SELECTOR.toString(), '(TON Testnet)\n')
+  console.log('🔍 Expected source:', networkConfig.tonTestnet.chainSelector, '(TON Testnet)\n')
 
   if (expectedMessageId) {
     console.log('🎯 Searching for specific Message ID:', expectedMessageId, '\n')
@@ -90,6 +121,7 @@ async function verifyEVMReceiver() {
 
   console.log('📨 Most Recent Message:')
   console.log('   Message ID:  ', latestEvent.args?.messageId)
+  console.log('   CCIP Explorer:', `${ccipExplorerUrl}/${latestEvent.args?.messageId}`)
   console.log('   Source Chain:', latestEvent.args?.sourceChainSelector?.toString(), '(TON Testnet ✓)')
   console.log('   Message:     ', `"${decodedMessage}"`)
   console.log('   Block:       ', latestEvent.blockNumber)
@@ -113,7 +145,7 @@ async function verifyEVMReceiver() {
 
   // Check if message matches expected
   const messageMatches = decodedMessage === expectedMessage
-  const sourceMatches = latestEvent.args?.sourceChainSelector?.toString() === TON_TESTNET.CHAIN_SELECTOR.toString()
+  const sourceMatches = latestEvent.args?.sourceChainSelector?.toString() === networkConfig.tonTestnet.chainSelector
   const idMatches = !expectedMessageId || latestEvent.args?.messageId === expectedMessageId
 
   if (messageMatches && sourceMatches) {
@@ -144,7 +176,7 @@ async function verifyEVMReceiver() {
 
   // Show transaction link
   console.log('🔗 View transaction:')
-  console.log(`   ${SEPOLIA.EXPLORER}/tx/${latestEvent.transactionHash}\n`)
+  console.log(`   ${destChain.explorer}/tx/${latestEvent.transactionHash}\n`)
 
   // Show all messages if multiple
   if (events.length > 1) {
@@ -171,12 +203,10 @@ function printHelp() {
   console.log('═══════════════════════════════════════════════════════════════')
   console.log('  TROUBLESHOOTING')
   console.log('═══════════════════════════════════════════════════════════════\n')
-  console.log('1. Verify you sent the TON → EVM message:')
-  console.log('   npm run ton2evm:send\n')
+  console.log('1. Confirm your TON send transaction was accepted (not bounced):')
+  console.log(`   ${networkConfig.tonTestnet.explorer}/<your-TON-sender-address>\n`)
   console.log('2. Wait 5-15 minutes for CCIP to process\n')
-  console.log('3. Check the TON TX was accepted (not bounced):')
-  console.log(`   ${TON_TESTNET.EXPLORER}/<your-wallet-address>\n`)
-  console.log('4. If still not working after 20 minutes, check:')
+  console.log('3. If still not working after 20 minutes, check:')
   console.log('   - Is EVM_RECEIVER_ADDRESS correct in .env?')
   console.log('   - Did the TON transaction succeed (no bounce)?')
 }

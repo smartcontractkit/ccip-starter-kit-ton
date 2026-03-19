@@ -1,85 +1,127 @@
 import { ethers } from 'ethers'
 import { Address } from '@ton/core'
-import { SEPOLIA, TON_TESTNET, WALLET, CONTRACTS } from '../../config/constants'
+import yargs from 'yargs'
+import { hideBin } from 'yargs/helpers'
+import { supportedEvmChains, networkConfig, ccipExplorerUrl } from '../../helper-config'
+import IRouterClientArtifact from '../../artifacts/@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol/IRouterClient.json'
+import { encodeTONAddress, buildCCIPMessageForTON, extractCCIPMessageIdForTON, getCCIPFeeForTON, getEvmChainConfig, getRpcUrlForEvmChain } from '../utils/utils'
+import { getDifferentAddressFormats, getTonExplorerLinks } from '../ton-utils/addressFormats'
+
+const erc20Abi = [
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function balanceOf(address account) view returns (uint256)'
+]
+
+const argv = yargs(hideBin(process.argv))
+  .option('sourceChain', {
+    type: 'string',
+    description: 'Source EVM chain',
+    choices: supportedEvmChains,
+    demandOption: true,
+  })
+  .option('msg', {
+    type: 'string',
+    description: 'Message string to send to the TON receiver',
+    default: 'Hello TON from EVM',
+  })
+  .option('feeToken', {
+    type: 'string',
+    description: 'Fee token for CCIP fee payment on source EVM chain',
+    choices: [networkConfig.tonTestnet.feeTokenNameNative , networkConfig.tonTestnet.feeTokenNameLink],
+    default: networkConfig.tonTestnet.feeTokenNameNative,
+  })
+  .option('tonReceiver', {
+    type: 'string',
+    description: 'TON receiver contract address',
+    demandOption: true,
+  })
+  .option('verbose', {
+    type: 'boolean',
+    description: 'Show additional address format details',
+    default: false,
+  })
+  .parseSync()
 
 async function sendEVMToTON() {
-  console.log('🧪 Testing EVM → TON Messaging\n')
+  const sourceChain = getEvmChainConfig(argv.sourceChain)
+  const feeTokenChoice = argv.feeToken
+  const selectedFeeToken = feeTokenChoice === networkConfig.tonTestnet.feeTokenNameNative ? ethers.ZeroAddress : sourceChain.linkTokenAddress
 
-  // "TypeScript (Sepolia/EVM)" connection
-  const endpoint = SEPOLIA.RPC_URL
+  const privateKey = process.env.EVM_PRIVATE_KEY;
+  if (!privateKey) throw new Error('EVM_PRIVATE_KEY is not set in .env');
+
+  if (feeTokenChoice === networkConfig.tonTestnet.feeTokenNameLink && !selectedFeeToken) {
+    throw new Error(`LINK fee token is not configured for ${argv.sourceChain}. Set ${sourceChain.networkIdentifier}_LINK_TOKEN in .env`)
+  }
+
+  console.log('🧪 Testing EVM → TON Messaging\n')
+  console.log('🌐 Source Chain:', argv.sourceChain)
+  console.log('💸 Fee Token:', argv.feeToken)
+
+  // Source EVM chain connection
+  const endpoint = getRpcUrlForEvmChain(sourceChain)
   const provider = new ethers.JsonRpcProvider(endpoint)
   
   const blockNumber = await provider.getBlockNumber()
   console.log('✅ Connected to EVM, Block:', blockNumber)
 
-  const wallet = new ethers.Wallet(WALLET.SEPOLIA_PRIVATE_KEY, provider)
+  const wallet = new ethers.Wallet(privateKey, provider)
   console.log('📤 Sending from:', wallet.address)
 
   // Check balance
   const balance = await provider.getBalance(wallet.address)
-  console.log('💰 Balance:', ethers.formatEther(balance), 'ETH\n')
+  console.log('💰 Balance:', ethers.formatEther(balance), sourceChain.nativeCurrencySymbol)
+
+  if (feeTokenChoice === networkConfig.tonTestnet.feeTokenNameLink && selectedFeeToken) {
+    const linkToken = new ethers.Contract(selectedFeeToken, erc20Abi, provider)
+    const linkBalance: bigint = await linkToken.balanceOf(wallet.address)
+    console.log('💰 LINK Balance:', ethers.formatUnits(linkBalance, 18), 'LINK')
+  }
+  console.log('')
 
   if (balance < ethers.parseEther('0.01')) {
-    console.error('❌ Insufficient balance. Need at least 0.01 ETH')
-    console.log('Get testnet ETH from https://faucets.chain.link/sepolia')
+    console.error(`❌ Insufficient balance. Need at least 0.01 ${sourceChain.nativeCurrencySymbol}`)
+    console.log(`Get testnet funds for ${argv.sourceChain} from the relevant faucet`) 
     return
   }
 
   // Verify receiver address is set
-  if (!CONTRACTS.TON_RECEIVER) {
-    console.error('❌ TON_RECEIVER_ADDRESS not set in .env')
-    console.log('Deploy the TON receiver first and add address to .env')
-    return
-  }
-
-  // IRouterClient interface
-  const routerABI = [
-    "function ccipSend(uint64 destinationChainSelector, tuple(bytes receiver, bytes data, tuple(address token, uint256 amount)[] tokenAmounts, address feeToken, bytes extraArgs) message) external payable returns (bytes32)",
-    "function getFee(uint64 destinationChainSelector, tuple(bytes receiver, bytes data, tuple(address token, uint256 amount)[] tokenAmounts, address feeToken, bytes extraArgs) message) external view returns (uint256)"
-  ]
-
-  // Router address from Network Information
-  const router = new ethers.Contract(SEPOLIA.ROUTER, routerABI, wallet)
-
-  // Chain selector from Network Information
-  const destChainSelector = TON_TESTNET.CHAIN_SELECTOR
-  const tonReceiverAddr = CONTRACTS.TON_RECEIVER
+  const tonReceiverAddr = argv.tonReceiver
   const tonAddr = Address.parse(tonReceiverAddr)
+  const tonReceiverFormats = getDifferentAddressFormats(tonAddr)
+  const tonReceiverExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, tonAddr)
+  const receiverBytes = encodeTONAddress(tonAddr)
+  const messageData = ethers.toUtf8Bytes(argv.msg)
+  const router = new ethers.Contract(sourceChain.router, IRouterClientArtifact.abi, wallet)
+  const destChainSelector = BigInt(networkConfig.tonTestnet.chainSelector)
+  const message = buildCCIPMessageForTON(receiverBytes, messageData, 100_000_000n, true, selectedFeeToken) // 0.1 TON gas limit
 
-  // FROM chainlink-ton/pkg/ccip/codec/addresscodec.go:
-  // "4 byte workchain (int32) + 32 byte data" = 36 bytes total
-  const workchain = tonAddr.workChain
-  const accountId = tonAddr.hash
-  
-  // Encode as: workchain (int32, 4 bytes big-endian) + address hash (32 bytes)
-  const workchainBytes = new Uint8Array(4);
-  new DataView(workchainBytes.buffer).setInt32(0, workchain, false); // big-endian int32
-  const receiverBytes = ethers.concat([
-    workchainBytes,  // 4 bytes for workchain (int32)
-    accountId  // 32 bytes for address hash
-  ])
-
-  const messageData = ethers.toUtf8Bytes('Hello TON from EVM')
-  const abiCoder = ethers.AbiCoder.defaultAbiCoder()
-  const extraArgs = abiCoder.encode(
-    ['uint256', 'bool'],
-    [100_000_000, true] // gasLimit in nanoTON (0.1 TON = 100,000,000 nanoTON), allowOutOfOrderExecution
-  )
-  const extraArgsWithTag = ethers.concat(['0x181dcf10', extraArgs]) // GENERIC_EXTRA_ARGS_V2_TAG
-
-  const message = {
-    receiver: receiverBytes,
-    data: messageData,
-    tokenAmounts: [], // ✅ FROM 1-PAGER: "empty for messaging-only"
-    feeToken: ethers.ZeroAddress, // ✅ FROM 1-PAGER: "0x0 = native token"
-    extraArgs: extraArgsWithTag
-  }
-
-  const fee = await router.getFee(destChainSelector, message)
+  const fee = await getCCIPFeeForTON(router, destChainSelector, message)
+  // Add a 10% buffer 
   const feeWithBuffer = (fee * 110n) / 100n
-  const tx = await router.ccipSend(destChainSelector, message, { 
-    value: feeWithBuffer 
-  })
+  let tx
+
+  if (feeTokenChoice === networkConfig.tonTestnet.feeTokenNameNative) {
+    tx = await router.ccipSend(destChainSelector, message, {
+      value: feeWithBuffer
+    })
+  } else {
+    const linkToken = new ethers.Contract(selectedFeeToken, erc20Abi, wallet)
+    const linkBalance: bigint = await linkToken.balanceOf(wallet.address)
+
+    if (linkBalance < feeWithBuffer) {
+      throw new Error(`Insufficient LINK balance for fee. Need ${feeWithBuffer.toString()} units, have ${linkBalance.toString()}`)
+    }
+
+    const currentAllowance: bigint = await linkToken.allowance(wallet.address, sourceChain.router)
+    if (currentAllowance < feeWithBuffer) {
+      const approveTx = await linkToken.approve(sourceChain.router, feeWithBuffer)
+      await approveTx.wait()
+    }
+
+    tx = await router.ccipSend(destChainSelector, message)
+  }
 
   console.log('✅ Transaction submitted!')
   console.log('   Hash:', tx.hash)
@@ -88,18 +130,28 @@ async function sendEVMToTON() {
   const receipt = await tx.wait()
   console.log('✅ Transaction confirmed in block:', receipt.blockNumber)
   
-  // Extract message ID from logs
-  const messageId = receipt.logs[0]?.topics[1]
-  console.log('📋 Message ID:', messageId)
+  const messageId = extractCCIPMessageIdForTON(receipt)
+  if (messageId) {
+    console.log('📋 Message ID:', messageId)
+    console.log(`🔍 Track on CCIP Explorer: ${ccipExplorerUrl}/${messageId}\n`)
+  } else {
+    console.warn('⚠️  Could not extract CCIP Message ID from receipt logs')
+  }
 
   console.log('\n⏳ Message is being processed by CCIP network...')
   console.log('⏳ Expected delivery: 5-15 minutes (staging environment)\n')
   console.log('🔍 Monitor your transaction:')
-  console.log(`   ${SEPOLIA.EXPLORER}/tx/${tx.hash}\n`)
+  console.log(`   ${sourceChain.explorer}/tx/${tx.hash}\n`)
   console.log('🔍 Monitor delivery on TON:')
-  console.log(`   ${TON_TESTNET.EXPLORER}/${tonReceiverAddr}\n`)
+  console.log(`   Bounceable (testable): ${tonReceiverExplorerLinks.bounceableTestableUrl}`)
+  if (argv.verbose) {
+    console.log(`   Bounceable (non-testable): ${tonReceiverExplorerLinks.bounceableNonTestableUrl}`)
+    console.log(`   Receiver Address (testable): ${tonReceiverFormats.bounceableTestable}`)
+    console.log(`   Receiver Address (non-testable): ${tonReceiverFormats.bounceableNonTestable}`)
+  }
+  console.log('')
   console.log('💡 Run verification script after 10-15 minutes:')
-  console.log('   npm run utils:checkTON')
+  console.log(`   npm run utils:checkTON -- --sourceChain ${argv.sourceChain} --tonReceiver ${argv.tonReceiver} --msg "${argv.msg}"`)
 }
 
 sendEVMToTON().catch((error) => {

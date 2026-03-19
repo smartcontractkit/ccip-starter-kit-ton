@@ -19,7 +19,7 @@ const argv = yargs(hideBin(process.argv))
   .parseSync()
 
 async function main() {
-  console.log('🚀 Deploying MessageReceiver contract to TON Testnet...\n');
+  console.log('🚀 Deploying MinimalReceiver contract to TON Testnet...\n');
 
   // TON Router address - this is what sends CCIPReceive messages to the receiver
   const TON_ROUTER = networkConfig.tonTestnet.router;
@@ -51,22 +51,17 @@ async function main() {
   console.log('💰 Wallet balance:', (Number(balance) / 1e9).toFixed(4), 'TON\n');
 
   // Compile contract
-  console.log('⏳ Compiling MessageReceiver.tolk...');
-  const code = await compile('MessageReceiver');
-  
-  // Build initial data (storage) for test receiver
-  // Storage { id: uint32, ownable: Ownable2Step, authorizedCaller: address, behavior: uint8 }
+  console.log('⏳ Compiling MinimalReceiver.tolk...');
+  const code = await compile('MinimalReceiver');
+
+  // Build initial storage: Storage { router: address }
+  // Only the Router address is stored — the router is the sole authorized caller.
   const routerAddress = Address.parse(TON_ROUTER);
   const routerFormats = getDifferentAddressFormats(routerAddress)
   const routerExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, routerAddress)
-  const ownerAddress = wallet.address;  // Make deployer the owner
-  
+
   const initialData = beginCell()
-    .storeUint(0, 32)                // id: 0
-    .storeAddress(ownerAddress)      // ownable.owner
-    .storeBit(false)                 // ownable.pendingOwner (null)
-    .storeAddress(routerAddress)     // authorizedCaller (Router - sends CCIPReceive messages)
-    .storeUint(0, 8)                 // behavior: ReceiverBehavior.Accept (0)
+    .storeAddress(routerAddress) // router: only the Router can send CCIPReceive messages
     .endCell();
 
   // Calculate contract address
@@ -76,7 +71,7 @@ async function main() {
   const receiverExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, receiverAddress)
 
   console.log('📍 Contract will be deployed at (bounceable testable):', receiverFormats.bounceableTestable);
-  console.log('📍 Router address (authorizedCaller, bounceable testable):', routerFormats.bounceableTestable)
+  console.log('📍 Router address (authorized caller, bounceable testable):', routerFormats.bounceableTestable)
   if (argv.verbose) {
     console.log('Contract also (non-testable):', receiverFormats.bounceableNonTestable)
     console.log('Router also (non-testable):', routerFormats.bounceableNonTestable)
@@ -99,7 +94,7 @@ async function main() {
     ],
   });
 
-  console.log('\n✅ MessageReceiver deployment initiated!');
+  console.log('\n✅ MinimalReceiver deployment initiated!');
   console.log('📍 Contract address (bounceable testable):', receiverFormats.bounceableTestable);
   console.log('📝 Next steps:');
   console.log('1. Wait 1-2 minutes for the transaction to be confirmed');
@@ -119,4 +114,3 @@ main()
     console.error('❌ Deployment failed:', error);
     process.exit(1);
   });
-

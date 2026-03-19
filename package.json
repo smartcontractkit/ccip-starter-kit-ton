@@ -2,12 +2,19 @@
   "name": "ccip-ton-starter-kit",
   "type": "module",
   "scripts": {
-    "deploy:evm": "npx hardhat run scripts/deploy/deployReceiver.ts --network sepolia",
-    "deploy:ton": "tsx scripts/deploy/deployTONReceiver.ts",
-    "evm2ton:send": "tsx scripts/evm2ton/sendMessage.ts",
+    "compile": "npx hardhat compile",
+    "deploy:evm:receiver": "npx hardhat run scripts/deploy/deployEVMReceiver.ts --network sepolia",
+    "deploy:ton:receiver": "tsx scripts/deploy/deployTONReceiver.ts",
+    "deploy:ton:receiver:minimal": "tsx scripts/deploy/deployMinimalTONReceiver.ts",
+    "deploy:ton:receiver:validate-and-confirm": "tsx scripts/deploy/deployTONReceiverWithValidateAndConfirm.ts",
+    "deploy:ton:sender": "tsx scripts/deploy/deployMinimalTONSender.ts",
+    "evm2ton:send": "npm run compile && tsx scripts/evm2ton/sendMessage.ts",
     "ton2evm:send": "tsx scripts/ton2evm/sendMessage.ts",
-    "utils:checkEVM": "tsx scripts/utils/checkMessageOnEVM.ts",
-    "utils:checkTON": "tsx scripts/utils/checkMessageOnTON.ts"
+    "ton2evm:send:via-sender": "tsx scripts/ton2evm/sendMessageUsingSender.ts",
+    "utils:checkEVM": "tsx scripts/ton2evm/checkMessageOnEVM.ts",
+    "utils:checkTON": "tsx scripts/evm2ton/checkMessageOnTON.ts",
+    "utils:checkLastTxs": "tsx scripts/ton-utils/checkLastTxs.ts",
+    "utils:convertAddress": "tsx scripts/ton-utils/convertAddress.ts"
   },
   "dependencies": {
     "@chainlink/contracts-ccip": "1.6.1",
@@ -16,12 +23,14 @@
     "@ton/crypto": "^3.3.0",
     "@ton/ton": "^16.0.0",
     "@types/node": "^24.9.1",
+    "@types/yargs": "^17.0.35",
     "dotenv": "^17.2.3",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^4.0.2",
+    "@nomicfoundation/hardhat-verify": "^3.0.12",
     "@tact-lang/compiler": "^1.6.13",
     "@ton-community/func-js": "^0.11.0",
     "@ton/blueprint": "^0.41.0",
