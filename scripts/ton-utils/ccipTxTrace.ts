@@ -12,7 +12,7 @@
  *   its raw message body and performing UTF-8 text extraction and comparison.
  * 
  * - extractMessageIdFromReceiverTx: Extracts the CCIP messageId (256-bit uint) from a receiver contract
- *   transaction's inMessage body by parsing the CCIPReceive message structure (opcode + rootId + Any2TVMMessage).
+ *   transaction's inMessage body by parsing the CCIPReceive message structure (opcode + execId + Any2TVMMessage).
  * 
  * Usage Examples:
  *   const traceHash = await getCcipTraceTxHash(destinationTxHash)
@@ -202,12 +202,33 @@ export function extractMessageIdFromReceiverTx(tx: any): string | null {
     // Skip opcode (32 bits)
     slice.skip(32)
     
-    // Skip rootId (192 bits)
+    // Skip execId (192 bits)
     slice.skip(192)
     
     // Extract messageId as uint256
     const messageId = slice.loadUintBig(256)
     return ethers.toBeHex(messageId, 32)
+  } catch {
+    return null
+  }
+}
+
+export function extractSourceChainSelectorFromReceiverTx(tx: any): bigint | null {
+  try {
+    if (!tx?.inMessage?.body) return null
+    const slice = tx.inMessage.body.beginParse()
+    
+    // Skip opcode (32 bits)
+    slice.skip(32)
+    
+    // Skip execId (192 bits)
+    slice.skip(192)
+    
+    // Skip messageId (256 bits)
+    slice.loadUintBig(256)
+    
+    // Extract sourceChainSelector (uint64)
+    return slice.loadUintBig(64)
   } catch {
     return null
   }

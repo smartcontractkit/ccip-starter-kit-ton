@@ -114,7 +114,7 @@ This bit must be explicitly stored. Otherwise, the FeeQuoter will interpret part
 const extraArgs = beginCell()
   .storeUint(0x181dcf10, 32) // 1. Version Tag
   .storeBit(true)            // 2. Presence bit (gasLimit is present)
-  .storeUint(1000000, 256)   // 3. The Gas Limit Value
+  .storeUint(100_000, 256)   // 3. The Gas Limit Value
   .storeBit(true)            // 4. allowOutOfOrderExecution
   .endCell();
 ```
@@ -142,7 +142,7 @@ The workchain is encoded as a signed 32-bit big-endian integer:
 *   Workchain `-1` → `0xffffffff` + 32-byte hash
 
 ### 2. The ExtraArgs Bitmask (TON → EVM)
-If you send `gasLimit: 1000000`, the binary stream looks like this:
+If you send `gasLimit: 100_000`, the binary stream looks like this:
 
 | Field | Size | Value | Binary / Hex |
 | :--- | :--- | :--- | :--- |
@@ -152,7 +152,7 @@ If you send `gasLimit: 1000000`, the binary stream looks like this:
 | **allowOutOfOrderExecution** | 1 bit | `true` | `1` |
 
 **Without the presence bit:**
-The parser interprets the first bit of `1000000` (which is `0`) as the presence flag. It determines that the gas limit is not present and skips reading the value. The next bit is then read as `allowOutOfOrderExecution`, resulting in incorrect data. This causes the transaction to fail with Exit Code 9.
+The parser interprets the first bit of `100000` (which is `0`) as the presence flag. It determines that the gas limit is not present and skips reading the value. The next bit is then read as `allowOutOfOrderExecution`, resulting in incorrect data. This causes the transaction to fail with Exit Code 9.
 
 ---
 

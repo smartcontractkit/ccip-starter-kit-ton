@@ -1,9 +1,9 @@
-import { TonClient, Address } from '@ton/ton'
+import { TonClient, Address, fromNano } from '@ton/ton'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 import { networkConfig, supportedEvmChains, ccipExplorerUrl } from '../../helper-config'
-import { checkTransactionMessageMatch, getCcipTraceTxHash, extractMessageIdFromReceiverTx } from '../ton-utils/ccipTxTrace'
-import { getDifferentAddressFormats, getTonExplorerLinks, TonAddressFormats } from '../ton-utils/addressFormats'
+import { checkTransactionMessageMatch, getCcipTraceTxHash, extractMessageIdFromReceiverTx, extractSourceChainSelectorFromReceiverTx } from '../ton-utils/ccipTxTrace'
+import { getDifferentAddressFormats, getTonExplorerLinks } from '../ton-utils/addressFormats'
 
 /**
  * Verify that an EVM → TON message was delivered
@@ -12,7 +12,6 @@ import { getDifferentAddressFormats, getTonExplorerLinks, TonAddressFormats } fr
  *   npm run utils:checkTON                                              # Check latest message
  *   npm run utils:checkTON -- --sourceChain sepolia                     # Select source EVM chain
  *   npm run utils:checkTON -- --msg "Hello TON"                        # Verify specific message content
- *   npm run utils:checkTON -- --sourceChain sepolia --verbose            # Show extra tx trace details
  */
 const argv = yargs(hideBin(process.argv))
   .option('sourceChain', {
@@ -31,11 +30,6 @@ const argv = yargs(hideBin(process.argv))
     description: 'TON receiver contract address',
     demandOption: true,
   })
-  .option('verbose', {
-    type: 'boolean',
-    description: 'Show additional tx trace details',
-    default: false,
-  })
   .parseSync()
 
 async function verifyTONReceiver() {
@@ -49,10 +43,7 @@ async function verifyTONReceiver() {
   const receiverExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, receiverAddr)
   const expectedMessage = argv.msg
 
-  console.log('📍 Receiver Contract (bounceable testable):', receiverFormats.bounceableTestable)
-  if (argv.verbose) {
-    console.log('Also (non-testable):', receiverFormats.bounceableNonTestable)
-  }
+  console.log('📍 Receiver Contract:', receiverFormats.bounceableNonTestable)
   console.log('🌐 Source Chain:', argv.sourceChain)
   console.log('🔍 Looking for message:', `"${expectedMessage}"`)
   console.log('🔍 Expected sender:', networkConfig.tonTestnet.router, '(CCIP Router)\n')
@@ -65,11 +56,14 @@ async function verifyTONReceiver() {
   if (transactions.length === 0) {
     console.log('❌ No transactions found on receiver contract')
     console.log('⚠️  Receiver might not be deployed or no messages sent yet\n')
-    printHelp(receiverFormats, receiverExplorerLinks)
+    printHelp(receiverExplorerLinks)
     return
   }
 
-  // Look for CCIP messages from OffRamp
+  // Look for CCIP messages from the Router, filtered to the expected source chain
+  const expectedSourceChainSelector = BigInt(
+    (networkConfig[argv.sourceChain as keyof typeof networkConfig] as { chainSelector: string }).chainSelector
+  )
   let ccipMessages: any[] = []
   const txMap = new Map<string, any>()
   
@@ -82,11 +76,15 @@ async function verifyTONReceiver() {
       const value = inMsg.info.value.coins
       const time = new Date(tx.now * 1000)
       
-      // Check if from Router (CCIP message)
+      // Check if from Router (CCIP message) and from the expected source chain
       if (from?.toString() === networkConfig.tonTestnet.router) {
+        const sourceChainSelector = extractSourceChainSelectorFromReceiverTx(tx)
+        if (sourceChainSelector !== null && sourceChainSelector !== expectedSourceChainSelector) {
+          continue
+        }
         ccipMessages.push({
           from: from.toString(),
-          value: Number(value) / 1e9,
+          value: fromNano(value),
           time,
           lt: tx.lt,
           hash: hash
@@ -96,11 +94,10 @@ async function verifyTONReceiver() {
   }
 
   if (ccipMessages.length === 0) {
-    console.log('❌ No CCIP messages found yet')
-    console.log('')
+    console.log('❌ No CCIP messages found yet\n')
     console.log('⏳ If you just sent a message, it may still be in transit.')
     console.log('   CCIP delivery typically takes 5-15 minutes.\n')
-    printHelp(receiverFormats, receiverExplorerLinks)
+    printHelp(receiverExplorerLinks)
     return
   }
 
@@ -123,44 +120,28 @@ async function verifyTONReceiver() {
     }
   }
 
-  if (!matchedExactMessage) {
-    console.log('❌ No exact message match found in recent CCIP deliveries')
-    console.log(`   Expected exact message: "${expectedMessage}"`)
-    console.log(`   Found message:          ${foundMessage ? `"${foundMessage}"` : '(unable to decode payload text)'}`)
-    console.log('')
-    console.log('💡 Tip: check the latest delivered message with --verbose and ensure text matches exactly (case-sensitive).')
-    return
-  }
-
-  // Show the matched CCIP message
+  // Show conditional header (exact match or most recent fallback)
   console.log('═══════════════════════════════════════════════════════════════')
-  console.log('  ✅ CCIP MESSAGE FOUND')
+  console.log(matchedExactMessage ? '  ✅ CCIP MESSAGE FOUND' : '  📨 MOST RECENT CCIP MESSAGE (no exact match)')
   console.log('═══════════════════════════════════════════════════════════════\n')
 
   const ccipTraceTxHash = await getCcipTraceTxHash(latest.hash)
   const destinationTxHash = ccipTraceTxHash ?? latest.hash
-  
+
   // Extract message ID from transaction
   const fullTx = txMap.get(latest.hash)
   const messageId = fullTx ? extractMessageIdFromReceiverTx(fullTx) : null
 
   console.log('📨 Most Recent CCIP Message:')
   console.log('   From:               ', latest.from, '(CCIP Router ✓)')
-  console.log('   Value:              ', latest.value, 'TON')
-  console.log('   Time:               ', latest.time.toISOString())
-  console.log('   Expected Message:   ', `"${expectedMessage}"`)
-  console.log('   Found Message:      ', foundMessage ? `"${foundMessage}"` : '(unable to decode payload text)')
   if (messageId) {
     console.log('   Message ID:         ', messageId)
     console.log('   CCIP Explorer:      ', `${ccipExplorerUrl}/${messageId}`)
   }
-  console.log('   Destination TX Hash:', destinationTxHash)
-  if (argv.verbose) {
-    console.log('   Receiver TX Hash:   ', latest.hash)
-    if (!ccipTraceTxHash) {
-      console.log('   Trace Lookup:       fallback to receiver tx hash')
-    }
-  }
+  console.log('   Value:              ', latest.value, 'TON')
+  console.log('   Message:            ', foundMessage ? `"${foundMessage}"` : '(unable to decode)')
+  console.log('   Time:               ', latest.time.toISOString())
+  console.log('   TX Hash:            ', destinationTxHash)
   console.log('')
 
   // Calculate time ago
@@ -177,16 +158,19 @@ async function verifyTONReceiver() {
   console.log('  VERIFICATION RESULT')
   console.log('═══════════════════════════════════════════════════════════════\n')
 
-  if (minutesAgo < 30) {
-    console.log('✅ Recent CCIP message delivered successfully!')
+  if (matchedExactMessage) {
+    console.log('✅ Message verified successfully!')
     console.log('')
-    console.log('   If you sent a message in the last 30 minutes,')
-    console.log('   this is likely your message.\n')
+    console.log('   ✓ Message content matches:', `"${expectedMessage}"`)
+    console.log('   ✓ From CCIP Router')
+    console.log('')
   } else {
-    console.log('⚠️  Latest CCIP message is older than 30 minutes.')
+    console.log('❌ No exact message match found in recent CCIP deliveries')
+    console.log(`   Expected exact message: "${expectedMessage}"`)
+    console.log(`   Found message:          ${foundMessage ? `"${foundMessage}"` : '(unable to decode payload text)'}`)
     console.log('')
-    console.log('   If you recently sent a message, it may still be in transit.')
-    console.log('   Wait a few more minutes and check again.\n')
+    console.log('💡 Tip: ensure the --msg value matches exactly (case-sensitive).')
+    console.log('')
   }
 
   // Show all CCIP messages if multiple
@@ -196,15 +180,11 @@ async function verifyTONReceiver() {
   }
 
   console.log('🔗 View on explorer:')
-  console.log(`   Bounceable (testable): ${receiverExplorerLinks.bounceableTestableUrl}`)
-  if (argv.verbose) {
-    console.log(`   Bounceable (non-testable): ${receiverExplorerLinks.bounceableNonTestableUrl}`)
-  }
-  console.log('')
-  console.log(`   TX: ${networkConfig.tonTestnet.explorer}/transaction/${destinationTxHash}`)
+  console.log(`   ${networkConfig.tonTestnet.explorer}/transaction/${destinationTxHash}`)
+  console.log(`   Receiver: ${receiverExplorerLinks.bounceableNonTestableUrl}\n`)
 }
 
-function printHelp(receiverFormats: TonAddressFormats, receiverExplorerLinks: { bounceableTestableUrl: string; bounceableNonTestableUrl: string }) {
+function printHelp(receiverExplorerLinks: { bounceableNonTestableUrl: string }) {
   console.log('═══════════════════════════════════════════════════════════════')
   console.log('  TROUBLESHOOTING')
   console.log('═══════════════════════════════════════════════════════════════\n')
@@ -213,15 +193,10 @@ function printHelp(receiverFormats: TonAddressFormats, receiverExplorerLinks: { 
   console.log('2. Wait 5-15 minutes for CCIP to process\n')
   console.log('3. Check source-chain TX and TON receiver activity:')
   console.log(`   Source explorer: ${networkConfig[argv.sourceChain as keyof typeof networkConfig].explorer}`)
-  console.log(`   TON receiver (bounceable testable): ${receiverExplorerLinks.bounceableTestableUrl}`)
-  if (argv.verbose) {
-    console.log(`   TON receiver (bounceable non-testable): ${receiverExplorerLinks.bounceableNonTestableUrl}`)
-    console.log(`   TON address (bounceable testable): ${receiverFormats.bounceableTestable}`)
-    console.log(`   TON address (bounceable non-testable): ${receiverFormats.bounceableNonTestable}`)
-  }
+  console.log(`   TON receiver: ${receiverExplorerLinks.bounceableNonTestableUrl}`)
   console.log('')
   console.log('4. If still not working after 20 minutes, check:')
-  console.log('   - Is TON_RECEIVER_ADDRESS correct in .env?')
+  console.log('   - Is the --tonReceiver address correct (no typos)?')
   console.log('   - Did the EVM transaction succeed?')
 }
 

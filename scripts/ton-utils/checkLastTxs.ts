@@ -38,11 +38,6 @@ const argv = yargs(hideBin(process.argv))
     description: 'Number of recent wallet transactions to scan',
     default: 20,
   })
-  .option('verbose', {
-    type: 'boolean',
-    description: 'Show additional address format details',
-    default: false,
-  })
   .parseSync()
 
 async function checkTONTxs() {
@@ -68,12 +63,8 @@ async function checkTONTxs() {
 
   const label = isCustomAddress ? '📋 Recent transactions for address' : '📋 Recent TON wallet transactions';
   console.log(label);
-  console.log('  Address (bounceable testable):', addrFormats.bounceableTestable);
-  console.log('  Explorer:', addrExplorerLinks.bounceableTestableUrl);
-  if (argv.verbose) {
-    console.log('  Also (non-testable):', addrFormats.bounceableNonTestable);
-    console.log('  Explorer (non-testable):', addrExplorerLinks.bounceableNonTestableUrl);
-  }
+  console.log('  Address:', addrFormats.bounceableNonTestable);
+  console.log('  Explorer:', addrExplorerLinks.bounceableNonTestableUrl);
   console.log('');
 
   const transactions = await client.getTransactions(targetAddress, { limit: argv.limit });
@@ -135,9 +126,6 @@ async function checkTONTxs() {
         if (matchedResponse.messageId !== undefined) {
           console.log('  CCIP Message ID:', matchedResponse.messageId);
           console.log('  CCIP Explorer:', `${ccipExplorerUrl}/${matchedResponse.messageId}`);
-        }
-        if (argv.verbose) {
-          console.log('  Response Tx Hash:', matchedResponse.txHash);
         }
       } else if (matchedResponse?.type === 'NACK') {
         console.log(`${ANSI_RED}  CCIP_SEND found${ANSI_RESET}`);

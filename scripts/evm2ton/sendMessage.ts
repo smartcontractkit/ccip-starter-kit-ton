@@ -5,7 +5,7 @@ import { hideBin } from 'yargs/helpers'
 import { supportedEvmChains, networkConfig, ccipExplorerUrl } from '../../helper-config'
 import IRouterClientArtifact from '../../artifacts/@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol/IRouterClient.json'
 import { encodeTONAddress, buildCCIPMessageForTON, extractCCIPMessageIdForTON, getCCIPFeeForTON, getEvmChainConfig, getRpcUrlForEvmChain } from '../utils/utils'
-import { getDifferentAddressFormats, getTonExplorerLinks } from '../ton-utils/addressFormats'
+import { getTonExplorerLinks } from '../ton-utils/addressFormats'
 
 const erc20Abi = [
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -35,11 +35,6 @@ const argv = yargs(hideBin(process.argv))
     type: 'string',
     description: 'TON receiver contract address',
     demandOption: true,
-  })
-  .option('verbose', {
-    type: 'boolean',
-    description: 'Show additional address format details',
-    default: false,
   })
   .parseSync()
 
@@ -89,7 +84,6 @@ async function sendEVMToTON() {
   // Verify receiver address is set
   const tonReceiverAddr = argv.tonReceiver
   const tonAddr = Address.parse(tonReceiverAddr)
-  const tonReceiverFormats = getDifferentAddressFormats(tonAddr)
   const tonReceiverExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, tonAddr)
   const receiverBytes = encodeTONAddress(tonAddr)
   const messageData = ethers.toUtf8Bytes(argv.msg)
@@ -143,12 +137,7 @@ async function sendEVMToTON() {
   console.log('🔍 Monitor your transaction:')
   console.log(`   ${sourceChain.explorer}/tx/${tx.hash}\n`)
   console.log('🔍 Monitor delivery on TON:')
-  console.log(`   Bounceable (testable): ${tonReceiverExplorerLinks.bounceableTestableUrl}`)
-  if (argv.verbose) {
-    console.log(`   Bounceable (non-testable): ${tonReceiverExplorerLinks.bounceableNonTestableUrl}`)
-    console.log(`   Receiver Address (testable): ${tonReceiverFormats.bounceableTestable}`)
-    console.log(`   Receiver Address (non-testable): ${tonReceiverFormats.bounceableNonTestable}`)
-  }
+  console.log(`   ${tonReceiverExplorerLinks.bounceableNonTestableUrl}`)
   console.log('')
   console.log('💡 Run verification script after 10-15 minutes:')
   console.log(`   npm run utils:checkTON -- --sourceChain ${argv.sourceChain} --tonReceiver ${argv.tonReceiver} --msg "${argv.msg}"`)

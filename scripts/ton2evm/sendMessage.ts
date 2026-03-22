@@ -30,17 +30,12 @@ const argv = yargs(hideBin(process.argv))
     description: 'EVM receiver contract address',
     demandOption: true,
   })
-  .option('verbose', {
-    type: 'boolean',
-    description: 'Show additional address format details',
-    default: false,
-  })
   .parseSync()
 
 async function sendTONToEVM() {
   const destChain = networkConfig[argv.destChain as keyof typeof networkConfig]
   const feeTokenChoice = argv.feeToken
-  const tonNativeFeeToken = '0:0000000000000000000000000000000000000000000000000000000000000001'
+  const tonNativeFeeToken = networkConfig.tonTestnet.nativeTokenAddress
   const selectedFeeToken = feeTokenChoice === 'native' ? tonNativeFeeToken : tonNativeFeeToken
 
   const mnemonic = process.env.TON_MNEMONIC;
@@ -66,10 +61,7 @@ async function sendTONToEVM() {
   const walletExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, wallet.address)
   const walletContract = client.open(wallet)
 
-  console.log('📤 Sending from (bounceable testable):', walletFormats.bounceableTestable)
-  if (argv.verbose) {
-    console.log('Also (non-testable):', walletFormats.bounceableNonTestable)
-  }
+  console.log('📤 Sending from:', walletFormats.bounceableNonTestable)
 
   // Check balance
   const balance = await client.getBalance(wallet.address)
@@ -147,10 +139,7 @@ async function sendTONToEVM() {
 
   console.log('✅ Transaction sent!\n')
   console.log('🔍 Monitor your transaction:')
-  console.log(`   Bounceable (testable): ${walletExplorerLinks.bounceableTestableUrl}`)
-  if (argv.verbose) {
-    console.log(`   Bounceable (non-testable): ${walletExplorerLinks.bounceableNonTestableUrl}`)
-  }
+  console.log(`   ${walletExplorerLinks.bounceableNonTestableUrl}`)
   console.log('')
   console.log(`🔍 Monitor delivery on ${argv.destChain}:`)
   console.log(`   ${destChain.explorer}/address/${evmReceiverAddr}\n`)

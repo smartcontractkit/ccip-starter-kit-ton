@@ -38,11 +38,6 @@ const argv = yargs(hideBin(process.argv))
     description: 'Deployed MinimalSender contract address on TON',
     demandOption: true,
   })
-  .option('verbose', {
-    type: 'boolean',
-    description: 'Show additional address format details',
-    default: false,
-  })
   .parseSync()
 
 async function sendTONToEVMViaSender() {
@@ -71,10 +66,7 @@ async function sendTONToEVMViaSender() {
   const walletExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, wallet.address)
   const walletContract = client.open(wallet)
 
-  console.log('📤 Sending from (bounceable testable):', walletFormats.bounceableTestable)
-  if (argv.verbose) {
-    console.log('Also (non-testable):', walletFormats.bounceableNonTestable)
-  }
+  console.log('📤 Sending from:', walletFormats.bounceableNonTestable)
 
   // Check balance
   const balance = await client.getBalance(wallet.address)
@@ -99,7 +91,7 @@ async function sendTONToEVMViaSender() {
   const extraArgs = buildExtraArgsForEVM(100_000, true) // 100k gas limit
   const seqno = await walletContract.getSeqno()
   console.log('🔑 QueryID (seqno):', seqno)
-  console.log('📨 Sender contract (bounceable testable):', senderFormats.bounceableTestable)
+  console.log('📨 Sender contract:', senderFormats.bounceableNonTestable)
 
   const ccipSendMessage = {
     queryID: BigInt(seqno),
@@ -169,10 +161,7 @@ async function sendTONToEVMViaSender() {
 
   console.log('\n✅ Transaction sent!\n')
   console.log('🔍 Monitor your transaction:')
-  console.log(`   Bounceable (testable): ${walletExplorerLinks.bounceableTestableUrl}`)
-  if (argv.verbose) {
-    console.log(`   Bounceable (non-testable): ${walletExplorerLinks.bounceableNonTestableUrl}`)
-  }
+  console.log(`   ${walletExplorerLinks.bounceableNonTestableUrl}`)
   console.log('')
   console.log(`🔍 Monitor delivery on ${argv.destChain}:`)
   console.log(`   ${destChain.explorer}/address/${argv.evmReceiver}\n`)

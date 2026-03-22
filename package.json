@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "compile": "npx hardhat compile",
-    "deploy:evm:receiver": "npx hardhat run scripts/deploy/deployEVMReceiver.ts --network sepolia",
+    "deploy:evm:receiver": "tsx scripts/deploy/deployEVMReceiver.ts",
     "deploy:ton:receiver": "tsx scripts/deploy/deployTONReceiver.ts",
     "deploy:ton:receiver:minimal": "tsx scripts/deploy/deployMinimalTONReceiver.ts",
     "deploy:ton:receiver:validate-and-confirm": "tsx scripts/deploy/deployTONReceiverWithValidateAndConfirm.ts",

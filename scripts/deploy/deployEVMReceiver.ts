@@ -54,11 +54,10 @@ async function main() {
   console.log("📍 Router address:", routerAddress);
   
   console.log("\n📝 Next steps:");
-  console.log("1. Add this address to your .env file as EVM_RECEIVER_ADDRESS");
-  console.log("2. Wait 1-2 minutes for Etherscan to index the contract");
-  console.log("3. Verify the contract (optional):");
+  console.log("1. Wait 1-2 minutes for Etherscan to index the contract");
+  console.log("2. Verify the contract (optional):");
   console.log(`   npx hardhat verify ${receiverAddress} ${routerAddress} --network ${argv.evmChain}`);
-  console.log("4. Send a test message to the deployed receiver:");
+  console.log("3. Send a test message to the deployed receiver:");
   console.log(`   npm run ton2evm:send -- --destChain ${argv.evmChain} --evmReceiver ${receiverAddress} --msg "Hello EVM from TON" --feeToken native`);
   console.log("\n🔍 View on explorer:");
   console.log(`   ${evmChain.explorer}/address/${receiverAddress}`);

@@ -6,23 +6,24 @@ import { networkConfig, supportedEvmChains } from "./helper-config";
 dotenv.config();
 
 const networks = Object.fromEntries(
-  supportedEvmChains.map((chain) => {
-    const cfg = networkConfig[chain];
-    const rpcUrlEnv = `${cfg.networkIdentifier}_RPC_URL`;
-    const rpcUrl = process.env[rpcUrlEnv];
-    if (!rpcUrl) {
-      throw new Error(`Missing required env var ${rpcUrlEnv} for ${chain} RPC URL`);
-    }
-    return [
-      chain,
-      {
-        type: "http" as const,
-        url: rpcUrl,
-        chainId: cfg.chainId,
-        accounts: process.env.EVM_PRIVATE_KEY ? [process.env.EVM_PRIVATE_KEY] : [],
-      },
-    ];
-  })
+  supportedEvmChains
+    .filter((chain) => {
+      const cfg = networkConfig[chain];
+      return !!process.env[`${cfg.networkIdentifier}_RPC_URL`];
+    })
+    .map((chain) => {
+      const cfg = networkConfig[chain];
+      const rpcUrl = process.env[`${cfg.networkIdentifier}_RPC_URL`]!;
+      return [
+        chain,
+        {
+          type: "http" as const,
+          url: rpcUrl,
+          chainId: cfg.chainId,
+          accounts: process.env.EVM_PRIVATE_KEY ? [process.env.EVM_PRIVATE_KEY] : [],
+        },
+      ];
+    })
 );
 
 const config: HardhatUserConfig = {
@@ -62,4 +63,3 @@ const config: HardhatUserConfig = {
 };
 
 export default config;
-

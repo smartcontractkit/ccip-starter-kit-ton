@@ -9,10 +9,10 @@ export const ccipExplorerUrl = 'https://ccip.chain.link/#/side-drawer/msg';
 
 // Add new supported EVM source chains here.
 // Each entry must have a corresponding config object in networkConfig below.
+// See https://docs.chain.link/ccip/directory/testnet/chain/ton-testnet for supported TON testnet <-> EVM testnet lanes.
 export const supportedEvmChains = [
   'sepolia',
-  // 'arbitrumSepolia',
-  // 'avalancheFuji',
+  'arbitrumSepolia',
 ] as const;
 
 // ============================================================
@@ -20,10 +20,13 @@ export const supportedEvmChains = [
 // ============================================================
 
 const tonRpcUrl = (() => {
-  let url = process.env.TON_RPC_URL || 'https://testnet.toncenter.com/api/v2/jsonRPC';
-  const apiKey = process.env.TON_API_KEY;
-  if (apiKey && !url.includes('api_key=')) {
-    url += `${url.includes('?') ? '&' : '?'}api_key=${apiKey}`;
+  let url = process.env.TON_RPC_URL || 'https://ton-testnet.api.onfinality.io/public';
+  const apiKey = process.env.TON_CENTER_API_KEY;
+  if (url.includes('toncenter.com')) {
+    if (!apiKey) throw new Error('TON_CENTER_API_KEY is required when using a toncenter RPC URL. Add TON_CENTER_API_KEY=<your_api_key> to your .env file. Get an API key at https://docs.ton.org/ecosystem/api/toncenter/get-api-key');
+    if (!url.includes('api_key=')) {
+      url += `${url.includes('?') ? '&' : '?'}api_key=${apiKey}`;
+    }
   }
   return url;
 })();
@@ -31,38 +34,30 @@ const tonRpcUrl = (() => {
 export const networkConfig = {
   tonTestnet: {
     rpcUrl: tonRpcUrl,
-    router: process.env.TON_ROUTER!,
-    chainSelector: process.env.TON_CHAIN_SELECTOR!,
+    chainSelector: '1399300952838017768',
+    router: 'EQB9QIw22sgwNKMfqsMKGepkhnjXYJmXlzCgcBSAlaiF9VCj',
     explorer: 'https://testnet.tonviewer.com',
     feeTokenNameNative: 'native',
     feeTokenNameLink: 'link',
+    nativeTokenAddress: 'EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAd99',
     destChains: Object.fromEntries(supportedEvmChains.map((c) => [c, c])) as Record<(typeof supportedEvmChains)[number], string>,
   },
   sepolia: {
     chainId: 11155111,
     networkIdentifier: 'ETHEREUM_SEPOLIA',
-    chainSelector: process.env.ETHEREUM_SEPOLIA_CHAIN_SELECTOR!,
-    router: process.env.ETHEREUM_SEPOLIA_ROUTER!,
-    linkTokenAddress: process.env.ETHEREUM_SEPOLIA_LINK_TOKEN!,
+    chainSelector: '16015286601757825753',
+    router: '0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59',
+    linkTokenAddress: '0x779877A7B0D9E8603169DdbD7836e478b4624789',
     explorer: 'https://sepolia.etherscan.io',
     nativeCurrencySymbol: 'ETH',
   },
   arbitrumSepolia: {
     chainId: 421614,
     networkIdentifier: 'ARBITRUM_SEPOLIA',
-    chainSelector: process.env.ARBITRUM_SEPOLIA_CHAIN_SELECTOR!,
-    router: process.env.ARBITRUM_SEPOLIA_ROUTER!,
-    linkTokenAddress: process.env.ARBITRUM_SEPOLIA_LINK_TOKEN!,
+    chainSelector: '3478487238524512106',
+    router: '0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165',
+    linkTokenAddress: '0xb1D4538B4571d411F07960EF2838Ce337FE1E80E',
     explorer: 'https://sepolia.arbiscan.io',
     nativeCurrencySymbol: 'ETH',
-  },
-  avalancheFuji: {
-    chainId: 43113,
-    networkIdentifier: 'AVALANCHE_FUJI',
-    chainSelector: process.env.AVALANCHE_FUJI_CHAIN_SELECTOR!,
-    router: process.env.AVALANCHE_FUJI_ROUTER!,
-    linkTokenAddress: process.env.AVALANCHE_FUJI_LINK_TOKEN!,
-    explorer: 'https://testnet.snowtrace.io',
-    nativeCurrencySymbol: 'AVAX',
   },
 };

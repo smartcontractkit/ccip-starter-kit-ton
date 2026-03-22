@@ -29,11 +29,6 @@ const argv = yargs(hideBin(process.argv))
     description: 'EVM receiver contract address',
     demandOption: true,
   })
-  .option('verbose', {
-    type: 'boolean',
-    description: 'Show additional address format details',
-    default: false,
-  })
   .parseSync()
 
 async function verifyEVMReceiver() {
@@ -44,7 +39,6 @@ async function verifyEVMReceiver() {
   console.log('═══════════════════════════════════════════════════════════════\n')
 
   const provider = new ethers.JsonRpcProvider(getRpcUrlForEvmChain(destChain))
-  const expectedMessageId = process.env.MESSAGE_ID
   const expectedMessage = argv.msg
   
   const receiverABI = [
@@ -63,10 +57,6 @@ async function verifyEVMReceiver() {
   console.log('🔍 Looking for message:', `"${expectedMessage}"`)
   console.log('🔍 Expected source:', networkConfig.tonTestnet.chainSelector, '(TON Testnet)\n')
 
-  if (expectedMessageId) {
-    console.log('🎯 Searching for specific Message ID:', expectedMessageId, '\n')
-  }
-
   // Check contract state for latest message
   console.log('📊 Checking contract state...\n')
   
@@ -79,8 +69,8 @@ async function verifyEVMReceiver() {
     lastMessageData = data
 
     console.log('📨 Latest message in contract state:')
-    console.log('   Message ID:  ', lastMessageId)
-    console.log('   Message:     ', `"${ethers.toUtf8String(lastMessageData)}"`)
+    console.log('   Message ID:         ', lastMessageId)
+    console.log('   Message:            ', `"${ethers.toUtf8String(lastMessageData)}"`)
   } catch (error: any) {
     console.log('⚠️  Could not read contract state (contract may not have getLastMessage)')
   }
@@ -102,11 +92,21 @@ async function verifyEVMReceiver() {
     return
   }
 
-  // Get the most recent event
-  const latestEvent = events[events.length - 1] as any
+  // Scan all events for a match, falling back to the most recent
+  let matchedEvent: any = null
+  for (let i = events.length - 1; i >= 0; i--) {
+    const evt = events[i] as any
+    let msg = ''
+    try { msg = ethers.toUtf8String(evt.args?.data || '0x') } catch { continue }
+    if (msg === expectedMessage) {
+      matchedEvent = evt
+      break
+    }
+  }
+  const latestEvent = matchedEvent ?? events[events.length - 1] as any
   const block = await provider.getBlock(latestEvent.blockNumber)
   const timestamp = block ? new Date(block.timestamp * 1000) : new Date()
-  
+
   // Decode the message
   let decodedMessage = ''
   try {
@@ -116,17 +116,17 @@ async function verifyEVMReceiver() {
   }
 
   console.log('═══════════════════════════════════════════════════════════════')
-  console.log('  ✅ CCIP MESSAGE FOUND')
+  console.log(matchedEvent ? '  ✅ CCIP MESSAGE FOUND' : '  📨 MOST RECENT CCIP MESSAGE (no exact match)')
   console.log('═══════════════════════════════════════════════════════════════\n')
 
-  console.log('📨 Most Recent Message:')
-  console.log('   Message ID:  ', latestEvent.args?.messageId)
-  console.log('   CCIP Explorer:', `${ccipExplorerUrl}/${latestEvent.args?.messageId}`)
-  console.log('   Source Chain:', latestEvent.args?.sourceChainSelector?.toString(), '(TON Testnet ✓)')
-  console.log('   Message:     ', `"${decodedMessage}"`)
-  console.log('   Block:       ', latestEvent.blockNumber)
-  console.log('   Time:        ', timestamp.toISOString())
-  console.log('   TX Hash:     ', latestEvent.transactionHash)
+  console.log('📨 Most Recent CCIP Message:')
+  console.log('   Message ID:         ', latestEvent.args?.messageId)
+  console.log('   CCIP Explorer:      ', `${ccipExplorerUrl}/${latestEvent.args?.messageId}`)
+  console.log('   Source Chain:       ', latestEvent.args?.sourceChainSelector?.toString(), '(TON Testnet ✓)')
+  console.log('   Message:            ', `"${decodedMessage}"`)
+  console.log('   Block:              ', latestEvent.blockNumber)
+  console.log('   Time:               ', timestamp.toISOString())
+  console.log('   TX Hash:            ', latestEvent.transactionHash)
   console.log('')
 
   // Calculate time ago
@@ -144,43 +144,36 @@ async function verifyEVMReceiver() {
   console.log('═══════════════════════════════════════════════════════════════\n')
 
   // Check if message matches expected
-  const messageMatches = decodedMessage === expectedMessage
+  const messageMatches = !!matchedEvent
   const sourceMatches = latestEvent.args?.sourceChainSelector?.toString() === networkConfig.tonTestnet.chainSelector
-  const idMatches = !expectedMessageId || latestEvent.args?.messageId === expectedMessageId
 
   if (messageMatches && sourceMatches) {
     console.log('✅ Message verified successfully!')
     console.log('')
     console.log('   ✓ Message content matches:', `"${expectedMessage}"`)
     console.log('   ✓ Source chain is TON Testnet')
-    if (expectedMessageId && idMatches) {
-      console.log('   ✓ Message ID matches')
-    }
     console.log('')
-  } else if (sourceMatches && minutesAgo < 30) {
-    console.log('✅ Recent TON → EVM message delivered!')
+  } else if (!messageMatches) {
+    console.log('❌ No exact message match found in recent CCIP deliveries')
+    console.log(`   Expected exact message: "${expectedMessage}"`)
+    console.log(`   Found message:          "${decodedMessage}"`)
     console.log('')
-    if (!messageMatches) {
-      console.log(`   ⚠️  Message content differs:`)
-      console.log(`      Expected: "${expectedMessage}"`)
-      console.log(`      Received: "${decodedMessage}"`)
-      console.log('')
-      console.log('   This is normal if you sent a different message.')
-    }
+    console.log('💡 Tip: ensure the --msg value matches exactly (case-sensitive).')
+    console.log('')
   } else {
-    console.log('⚠️  Latest message is older than 30 minutes.')
+    console.log('⚠️  Source chain mismatch.')
+    console.log(`   Expected: ${networkConfig.tonTestnet.chainSelector} (TON Testnet)`)
+    console.log(`   Got:      ${latestEvent.args?.sourceChainSelector?.toString()}`)
     console.log('')
-    console.log('   If you recently sent a message from TON,')
-    console.log('   it may still be in transit. Wait and check again.\n')
   }
 
   // Show transaction link
-  console.log('🔗 View transaction:')
+  console.log('🔗 View on explorer:')
   console.log(`   ${destChain.explorer}/tx/${latestEvent.transactionHash}\n`)
 
   // Show all messages if multiple
   if (events.length > 1) {
-    console.log(`📊 Total messages found: ${events.length}`)
+    console.log(`📊 Total CCIP messages found: ${events.length}`)
     console.log('   (showing most recent above)\n')
     
     console.log('Recent messages:')
@@ -207,7 +200,7 @@ function printHelp() {
   console.log(`   ${networkConfig.tonTestnet.explorer}/<your-TON-sender-address>\n`)
   console.log('2. Wait 5-15 minutes for CCIP to process\n')
   console.log('3. If still not working after 20 minutes, check:')
-  console.log('   - Is EVM_RECEIVER_ADDRESS correct in .env?')
+  console.log('   - Is the --evmReceiver address correct (no typos)?')
   console.log('   - Did the TON transaction succeed (no bounce)?')
 }
 
