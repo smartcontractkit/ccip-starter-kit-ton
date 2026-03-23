@@ -183,7 +183,7 @@ npm run deploy:ton:sender
 Then send through it:
 
 ```bash
-npm run ton2evm:send:via-sender -- --destChain sepolia --evmReceiver <EVM_RECEIVER_ADDRESS> --tonSender <TON_SENDER_ADDRESS> --msg "Hello EVM from TON" --feeToken native
+npm run ton2evm:send -- --destChain sepolia --evmReceiver <EVM_RECEIVER_ADDRESS> --tonSender <TON_SENDER_ADDRESS> --msg "Hello EVM from TON" --feeToken native
 ```
 
 The sender contract receives a `CCIPSender_RelayCCIPSend` message, forwards the pre-built `Router_CCIPSend` cell to the Router, and handles the ACK/NACK response. This is the pattern to use when your application logic lives on-chain.

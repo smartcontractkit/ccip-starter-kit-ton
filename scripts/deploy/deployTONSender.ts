@@ -1,4 +1,4 @@
-import { Address, toNano, fromNano, beginCell, contractAddress } from '@ton/core';
+import { toNano, fromNano, beginCell, contractAddress } from '@ton/core';
 import { compile } from '@ton/blueprint';
 import { TonClient, WalletContractV4, internal } from '@ton/ton';
 import { mnemonicToPrivateKey } from '@ton/crypto';
@@ -9,7 +9,7 @@ import { getDifferentAddressFormats, getTonExplorerLinks } from '../ton-utils/ad
 dotenv.config();
 
 async function main() {
-  console.log('🚀 Deploying MinimalReceiver contract to TON Testnet...\n');
+  console.log('🚀 Deploying MinimalSender contract to TON Testnet...\n');
 
   // Connect to TON (API key is automatically included if TON_CENTER_API_KEY is set in .env)
   const endpoint = networkConfig.tonTestnet.rpcUrl;
@@ -34,25 +34,20 @@ async function main() {
   console.log('💰 Wallet balance:', fromNano(balance), 'TON\n');
 
   // Compile contract
-  console.log('⏳ Compiling MinimalReceiver.tolk...');
-  const code = await compile('MinimalReceiver');
+  console.log('⏳ Compiling MinimalSender.tolk...');
+  const code = await compile('MinimalSender');
 
-  // Build initial storage: Storage { router: address }
-  // Only the Router address is stored — the router is the sole authorized caller.
-  const routerAddress = Address.parse(networkConfig.tonTestnet.router);
-
-  const initialData = beginCell()
-    .storeAddress(routerAddress) // router: only the Router can send CCIPReceive messages
-    .endCell();
+  // MinimalSender has no persistent storage — it is a stateless relay contract.
+  // The initial data cell is empty.
+  const initialData = beginCell().endCell();
 
   // Calculate contract address
   const stateInit = { code, data: initialData };
-  const receiverAddress = contractAddress(0, stateInit);
-  const receiverFormats = getDifferentAddressFormats(receiverAddress)
-  const receiverExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, receiverAddress)
+  const senderAddress = contractAddress(0, stateInit);
+  const senderFormats = getDifferentAddressFormats(senderAddress)
+  const senderExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, senderAddress)
 
-  console.log('📍 Contract will be deployed at:', receiverFormats.bounceableNonTestable);
-  console.log('📍 Router address (authorized caller):', networkConfig.tonTestnet.router)
+  console.log('📍 Contract will be deployed at:', senderFormats.bounceableNonTestable);
 
   // Deploy contract
   console.log('\n⏳ Sending deployment transaction...');
@@ -61,7 +56,7 @@ async function main() {
     secretKey: keyPair.secretKey,
     messages: [
       internal({
-        to: receiverAddress,
+        to: senderAddress,
         value: toNano('0.1'),
         bounce: false,
         init: stateInit,
@@ -69,15 +64,15 @@ async function main() {
     ],
   });
 
-  console.log('\n✅ MinimalReceiver deployment initiated!');
-  console.log('📍 Contract address:', receiverFormats.bounceableNonTestable);
+  console.log('\n✅ MinimalSender deployment initiated!');
+  console.log('📍 Contract address:', senderFormats.bounceableNonTestable);
   console.log('📝 Next steps:');
   console.log('1. Wait 1-2 minutes for the transaction to be confirmed');
-  console.log('2. Copy the contract address above — pass it as --tonReceiver when sending messages');
+  console.log('2. Copy the contract address above — pass it as --tonSender when sending messages via the sender contract');
   console.log('3. Verify deployment on TON explorer:');
-  console.log(`   ${receiverExplorerLinks.bounceableNonTestableUrl}`);
-  console.log('4. Send a test message to the deployed receiver:');
-  console.log(`   npm run evm2ton:send -- --sourceChain <source-chain> --tonReceiver ${receiverFormats.bounceableNonTestable} --msg "Hello TON from EVM" --feeToken native`);
+  console.log(`   ${senderExplorerLinks.bounceableNonTestableUrl}`);
+  console.log('4. Send a CCIP message via the deployed sender:');
+  console.log(`   npm run ton2evm:send -- --destChain <dest-chain> --evmReceiver <evm-receiver> --tonSender ${senderFormats.bounceableNonTestable} --msg "Hello EVM from TON" --feeToken native`);
 }
 
 main()
