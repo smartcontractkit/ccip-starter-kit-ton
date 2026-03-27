@@ -25,6 +25,8 @@ import "../chainlink-ton/contracts/contracts/ccip/router/messages"  // Router_CC
 ///               Must cover the CCIP fee — query getCCIPFee off-chain before sending.
 ///               The total value sent to this contract must be valueToAttach plus
 ///               enough extra to cover this contract's own execution costs (~0.1 TON).
+///               Any TON surplus above compute costs is returned via ACK (message accepted)
+///               or NACK (message rejected — both fee and surplus are returned).
 /// message: the pre-built Router_CCIPSend message cell.
 struct (0x00000001) CCIPSender_RelayCCIPSend {
     routerAddress: address;
@@ -48,12 +50,14 @@ fun onInternalMessage(in: InMessage) {
         Router_CCIPSendACK => {
             // ★ CCIP message was accepted by the Router.
             //   msg.messageId contains the unique CCIP message ID.
+            //   Any TON surplus above compute costs is returned here; the fee is not refunded.
             //   Add your on-chain success handling here (e.g. update state, emit event).
             return;
         }
         Router_CCIPSendNACK => {
             // ★ CCIP send was rejected by the Router.
-            //   The remaining value is returned and msg.error contains the exit code.
+            //   Both the fee and any TON surplus are returned here since the message was not accepted.
+            //   msg.error contains the Router exit code indicating the rejection reason.
             //   Add your on-chain failure handling here (e.g. refund, retry logic).
             throw msg.error;
         }
