@@ -1,20 +1,39 @@
-import { Address, toNano, beginCell, contractAddress } from '@ton/core';
+import { Address, toNano, fromNano, beginCell, contractAddress } from '@ton/core';
 import { compile } from '@ton/blueprint';
 import { TonClient, WalletContractV4, internal } from '@ton/ton';
 import { mnemonicToPrivateKey } from '@ton/crypto';
+import { readdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import * as dotenv from 'dotenv';
-import { TON_TESTNET } from '../../config/constants';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
+import { networkConfig } from '../../helper-config';
+import { getDifferentAddressFormats, getTonExplorerLinks } from '../ton-utils/addressFormats';
 
 dotenv.config();
 
+// Derive valid contract names from wrappers/*.compile.ts files matching "Receiver"
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const receiverContracts = readdirSync(join(__dirname, '../../wrappers'))
+  .filter((f) => /Receiver.*\.compile\.ts$/.test(f))
+  .map((f) => f.replace('.compile.ts', ''));
+
 async function main() {
-  console.log('🚀 Deploying MessageReceiver contract to TON Testnet...\n');
+  const argv = await yargs(hideBin(process.argv))
+    .option('contract', {
+      type: 'string',
+      demandOption: true,
+      choices: receiverContracts,
+      description: 'The receiver contract to deploy',
+    })
+    .parse();
 
-  // TON Router address - this is what sends CCIPReceive messages to the receiver
-  const TON_ROUTER = TON_TESTNET.ROUTER;
+  const contractName = argv.contract;
+  console.log(`🚀 Deploying ${contractName} contract to TON Testnet...\n`);
 
-  // Connect to TON (API key is automatically included if TON_API_KEY is set in .env)
-  const endpoint = TON_TESTNET.RPC_URL;
+  // Connect to TON (API key is automatically included if TON_CENTER_API_KEY is set in .env)
+  const endpoint = networkConfig.tonTestnet.rpcUrl;
   const client = new TonClient({ endpoint });
 
   // Load wallet from mnemonic
@@ -27,34 +46,46 @@ async function main() {
   const keyPair = await mnemonicToPrivateKey(mnemonicArray);
   const wallet = WalletContractV4.create({ workchain: 0, publicKey: keyPair.publicKey });
   const walletContract = client.open(wallet);
+  const walletFormats = getDifferentAddressFormats(wallet.address);
+  const walletExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, wallet.address);
 
-  console.log('📤 Deploying from wallet:', wallet.address.toString());
+  console.log('📤 Deploying from wallet:', walletFormats.bounceableNonTestable);
+  console.log('Explorer:', walletExplorerLinks.bounceableNonTestableUrl);
   const balance = await walletContract.getBalance();
-  console.log('💰 Wallet balance:', (Number(balance) / 1e9).toFixed(4), 'TON\n');
+  console.log('💰 Wallet balance:', fromNano(balance), 'TON\n');
 
   // Compile contract
-  console.log('⏳ Compiling MessageReceiver.tolk...');
-  const code = await compile('MessageReceiver');
-  
-  // Build initial data (storage) for test receiver
-  // Storage { id: uint32, ownable: Ownable2Step, authorizedCaller: address, behavior: uint8 }
-  const routerAddress = Address.parse(TON_ROUTER);
-  const ownerAddress = wallet.address;  // Make deployer the owner
-  
-  const initialData = beginCell()
-    .storeUint(0, 32)                // id: 0
-    .storeAddress(ownerAddress)      // ownable.owner
-    .storeBit(false)                 // ownable.pendingOwner (null)
-    .storeAddress(routerAddress)     // authorizedCaller (Router - sends CCIPReceive messages)
-    .storeUint(0, 8)                 // behavior: ReceiverBehavior.Accept (0)
-    .endCell();
+  console.log(`⏳ Compiling ${contractName}.tolk...`);
+  const code = await compile(contractName);
+
+  // Build initial storage
+  const routerAddress = Address.parse(networkConfig.tonTestnet.router);
+  let initialData;
+  if (contractName === 'MessageReceiver') {
+    // Storage { id: uint32, ownable: Ownable2Step, authorizedCaller: address, behavior: uint8 }
+    initialData = beginCell()
+      .storeUint(0, 32)             // id: 0
+      .storeAddress(wallet.address) // ownable.owner (deployer)
+      .storeBit(false)              // ownable.pendingOwner (null)
+      .storeAddress(routerAddress)  // authorizedCaller (Router - sends CCIPReceive messages)
+      .storeUint(0, 8)              // behavior: ReceiverBehavior.Accept (0)
+      .endCell();
+  } else {
+    // MinimalReceiver / ReceiverWithValidateAndConfirm
+    // Storage { router: address }
+    initialData = beginCell()
+      .storeAddress(routerAddress) // router: only the Router can send CCIPReceive messages
+      .endCell();
+  }
 
   // Calculate contract address
   const stateInit = { code, data: initialData };
   const receiverAddress = contractAddress(0, stateInit);
+  const receiverFormats = getDifferentAddressFormats(receiverAddress);
+  const receiverExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, receiverAddress);
 
-  console.log('📍 Contract will be deployed at:', receiverAddress.toString());
-  console.log('📍 Router address (authorizedCaller):', TON_ROUTER);
+  console.log('📍 Contract will be deployed at:', receiverFormats.bounceableNonTestable);
+  console.log('📍 Router address (authorized caller):', networkConfig.tonTestnet.router);
 
   // Deploy contract
   console.log('\n⏳ Sending deployment transaction...');
@@ -71,15 +102,15 @@ async function main() {
     ],
   });
 
-  console.log('\n✅ MessageReceiver deployment initiated!');
-  console.log('📍 Contract address:', receiverAddress.toString());
+  console.log(`\n✅ ${contractName} deployment initiated!`);
+  console.log('📍 Contract address:', receiverFormats.bounceableNonTestable);
   console.log('📝 Next steps:');
   console.log('1. Wait 1-2 minutes for the transaction to be confirmed');
-  console.log('2. Add this address to your .env file as TON_RECEIVER_ADDRESS');
+  console.log('2. Copy the contract address above — pass it as --tonReceiver when sending messages');
   console.log('3. Verify deployment on TON explorer:');
-  console.log(`   https://testnet.tonviewer.com/${receiverAddress.toString()}`);
-  console.log('\n💡 Check deployment status:');
-  console.log(`   npm run utils:checkTON`);
+  console.log(`   ${receiverExplorerLinks.bounceableNonTestableUrl}`);
+  console.log('4. Send a test message to the deployed receiver:');
+  console.log(`   npm run evm2ton:send -- --sourceChain <source-chain> --tonReceiver ${receiverFormats.bounceableNonTestable} --msg "Hello TON from EVM" --feeToken native`);
 }
 
 main()
