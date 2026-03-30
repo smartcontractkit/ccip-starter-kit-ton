@@ -4,7 +4,7 @@
   "scripts": {
     "update-submodules": "git submodule update --remote",
     "compile:evm": "npx hardhat compile",
-    "deploy:evm:receiver": "tsx scripts/deploy/deployEVMReceiver.ts",
+    "deploy:evm:receiver": "npm run compile:evm && tsx scripts/deploy/deployEVMReceiver.ts",
     "deploy:ton:receiver": "tsx scripts/deploy/deployTONReceiver.ts --contract MessageReceiver",
     "deploy:ton:receiver:minimal": "tsx scripts/deploy/deployTONReceiver.ts --contract MinimalReceiver",
     "deploy:ton:receiver:validate-and-confirm": "tsx scripts/deploy/deployTONReceiver.ts --contract ReceiverWithValidateAndConfirm",
