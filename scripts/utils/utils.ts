@@ -10,18 +10,7 @@ const GENERIC_EXTRA_ARGS_V2_TAG = '0x181dcf10'
 const CCIP_SEND_OPCODE = 0x31768d95
 
 /**
- * [EVM → TON] Encodes a TON address into the 36-byte format expected by the EVM CCIP Router.
- * Format: 4-byte workchain (int32, big-endian) + 32-byte address hash.
- * Source: chainlink-ton/pkg/ccip/codec/addresscodec.go
- */
-export function encodeTONAddress(addr: Address): Uint8Array {
-  const workchainBytes = new Uint8Array(4)
-  new DataView(workchainBytes.buffer).setInt32(0, addr.workChain, false)
-  return ethers.getBytes(ethers.concat([workchainBytes, addr.hash]))
-}
-
-/**
- * [TON → EVM] Encodes an EVM address into the 44-byte format expected by the TON CCIP Router.
+ * [TON → EVM] Encodes an EVM address into the 32-byte format expected by the TON CCIP Router.
  * Format: 12 zero-bytes (left-pad) + 20-byte EVM address.
  */
 export function encodeEVMAddress(evmAddr: string): Buffer {
