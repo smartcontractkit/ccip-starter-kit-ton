@@ -23,25 +23,14 @@ Understanding these details is crucial because EVM (Ethereum Virtual Machine) an
 *Script:* `evm2ton/sendMessage.ts`
 
 ### Address Encoding (EVM → TON)
-**The Challenge:** The EVM Router expects a `bytes` receiver address. However, you cannot just send a string like `"EQB..."`. The TON OffRamp contract needs the raw components to reconstruct the address.
+**The Challenge:** The EVM Router expects a `bytes` receiver address, but a TON address is typically a user-friendly base64-encoded string (e.g., `"EQB..."`).
 
-**The Solution:** We encode the TON address into a standardized **36-byte** format.
+**The Solution:** TON user-friendly addresses are base64-encoded 36-byte sequences. Decode the address string directly:
 
 ```typescript
-// 1. Parse Friendly Address
-const tonAddr = Address.parse("EQB..."); 
-
-// 2. Extract Components
-const workchain = tonAddr.workChain; // 0 or -1
-const hash = tonAddr.hash;           // 32-byte unique ID
-
-// 3. Pack into 36 Bytes (Big-Endian)
-// [ 4 bytes workchain (int32) ] + [ 32 bytes hash ]
-const workchainBytes = new Uint8Array(4)
-new DataView(workchainBytes.buffer).setInt32(0, workchain, false) // big-endian
-const receiverBytes = ethers.concat([workchainBytes, hash])
-// e.g. workchain 0  → 0x00000000 + 32-byte hash
-// e.g. workchain -1 → 0xffffffff + 32-byte hash
+const tonContractAddr = "EQB9QIw22sgwNKMfqsMKGepkhnjXYJmXlzCgcBSAlaiF9VCj"
+const receiverBytes = new Uint8Array(Buffer.from(tonContractAddr, 'base64'))
+// 36 bytes: [ 1 byte flags ] + [ 1 byte workchain ] + [ 32 bytes hash ] + [ 2 bytes CRC16 ]
 ```
 
 ### ExtraArgs & Execution Parameters
@@ -137,9 +126,10 @@ const extraArgs = beginCell()
 ## Byte-Level Encoding Details
 
 ### 1. The 36-Byte Address (EVM → TON)
-The workchain is encoded as a signed 32-bit big-endian integer:
-*   Workchain `0`  → `0x00000000` + 32-byte hash
-*   Workchain `-1` → `0xffffffff` + 32-byte hash
+TON user-friendly addresses (e.g., `EQ...`, `UQ...`) are base64-encoded 36-byte sequences:
+`[ 1 byte flags ] + [ 1 byte workchain ] + [ 32 bytes hash ] + [ 2 bytes CRC16 ]`
+
+`Buffer.from(tonAddr, 'base64')` decodes this directly. The EVM CCIP Router and TON OffRamp both accept this user-friendly byte format.
 
 ### 2. The ExtraArgs Bitmask (TON → EVM)
 If you send `gasLimit: 100_000`, the binary stream looks like this:
@@ -160,7 +150,7 @@ The parser interprets the first bit of `100000` (which is `0`) as the presence f
 
 | Feature | EVM → TON | TON → EVM |
 | :--- | :--- | :--- |
-| **Address Format** | 36 Bytes (4B workchain int32 + 32B hash) | 32 Bytes zero-padded (12B zeros + 20B address), length-prefixed by `CrossChainAddress` |
+| **Address Format** | 36 Bytes (base64-decoded user-friendly: 1B flags + 1B workchain + 32B hash + 2B CRC) | 32 Bytes zero-padded (12B zeros + 20B address), length-prefixed by `CrossChainAddress` |
 | **Ordering** | `allowOutOfOrder = true` (Mandatory) | `allowOutOfOrder = true` (Recommended) |
 | **ExtraArgs Fmt** | ABI Encoded (`bytes`) | TL-B Encoded (`Cell`) |
 | **gasLimit units** | nanoTON (e.g. `100_000_000n` = 0.1 TON) | EVM gas units (e.g. `100_000`) |

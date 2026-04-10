@@ -4,7 +4,7 @@ import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 import { supportedEvmChains, networkConfig, ccipExplorerUrl } from '../../helper-config'
 import IRouterClientArtifact from '../../artifacts/@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol/IRouterClient.json'
-import { encodeTONAddress, buildCCIPMessageForTON, extractCCIPMessageIdForTON, getCCIPFeeForTON, getEvmChainConfig, getRpcUrlForEvmChain } from '../utils/utils'
+import { buildCCIPMessageForTON, extractCCIPMessageIdForTON, getCCIPFeeForTON, getEvmChainConfig, getRpcUrlForEvmChain } from '../utils/utils'
 import { getTonExplorerLinks } from '../ton-utils/addressFormats'
 
 const erc20Abi = [
@@ -85,7 +85,7 @@ async function sendEVMToTON() {
   const tonReceiverAddr = argv.tonReceiver
   const tonAddr = Address.parse(tonReceiverAddr)
   const tonReceiverExplorerLinks = getTonExplorerLinks(networkConfig.tonTestnet.explorer, tonAddr)
-  const receiverBytes = encodeTONAddress(tonAddr)
+  const receiverBytes = new Uint8Array(Buffer.from(tonReceiverAddr, 'base64'))
   const messageData = ethers.toUtf8Bytes(argv.msg)
   const router = new ethers.Contract(sourceChain.router, IRouterClientArtifact.abi, wallet)
   const destChainSelector = BigInt(networkConfig.tonTestnet.chainSelector)
