@@ -19,6 +19,7 @@
 
 import "../chainlink-ton/contracts/contracts/lib/utils"             // emit
 import "../chainlink-ton/contracts/contracts/lib/receiver/types"    // Any2TVMMessage
+import "../chainlink-ton/contracts/contracts/lib/receiver/errors"   // Receiver_Error
 import "../chainlink-ton/contracts/contracts/lib/receiver/messages" // Receiver_CCIPReceive
 import "../chainlink-ton/contracts/contracts/ccip/router/messages"  // Router_CCIPReceiveConfirm
 
@@ -47,9 +48,9 @@ fun Storage.store(self) {
 const MIN_VALUE: coins = ton("0.03");
 
 // ── Error codes ───────────────────────────────────────────────────────────────
-
-const ERROR_UNAUTHORIZED = 100; // sender is not the authorized CCIP Router
-const ERROR_LOW_VALUE    = 101; // attached value is below MIN_VALUE
+//
+// Uses Receiver_Error from lib/receiver/errors.tolk (imported transitively via
+// lib/receiver/messages). Unauthorized = 5400, LowValue = 5401.
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -70,12 +71,12 @@ fun onInternalMessage(in: InMessage) {
             val st = lazy Storage.load();
 
             // 1. Accept messages only from the authorized CCIP Router.
-            assert(in.senderAddress == st.router) throw ERROR_UNAUTHORIZED;
+            assert(in.senderAddress == st.router) throw (Receiver_Error.Unauthorized as int);
 
             // 2. Verify enough value is attached to cover gas costs.
             //    The Router needs at least 0.02 TON for the confirmation message.
             //    Increase MIN_VALUE to account for your contract's execution costs.
-            assert(in.valueCoins >= MIN_VALUE) throw ERROR_LOW_VALUE;
+            assert(in.valueCoins >= MIN_VALUE) throw (Receiver_Error.LowValue as int);
 
             // 3. Send CCIPReceiveConfirm back to the Router.
             //    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE forwards all remaining TON
